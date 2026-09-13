@@ -9,7 +9,7 @@
 
 use crate::model::BalancePayload;
 use crate::service::ledger::record_usage;
-use chrono::Timelike;
+use chrono::{Datelike, Timelike};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -17,16 +17,24 @@ use std::time::Duration;
 // 峰谷定价表（复刻原插件 `PEAK_HOURS` / `BASE_PRICE` / `PRICING`）
 // ---------------------------------------------------------------------------
 
-/// 高峰时段：每日 9:00–12:00 与 14:00–18:00（北京时间 UTC+8）。
+/// 高峰时段：周一至周五 9:00–12:00 与 14:00–18:00（北京时间 UTC+8），其余为空闲时段。
 const PEAK_HOURS: [(u32, u32); 2] = [(9, 12), (14, 18)];
 
 /// 判断给定 epoch 秒是否处于高峰时段（按北京时间判定）。
 pub fn is_peak_time(time_sec: i64) -> bool {
     let offset = chrono::FixedOffset::east_opt(8 * 3600)
         .unwrap_or_else(|| chrono::FixedOffset::east_opt(0).unwrap());
-    let hour = chrono::DateTime::<chrono::Utc>::from_timestamp(time_sec, 0)
-        .map(|t| t.with_timezone(&offset).hour())
-        .unwrap_or_else(|| chrono::Local::now().hour());
+    let beijing = chrono::DateTime::<chrono::Utc>::from_timestamp(time_sec, 0)
+        .map(|t| t.with_timezone(&offset))
+        .unwrap_or_else(|| chrono::Local::now().with_timezone(&offset));
+    // 周六、周日全天为空闲时段。
+    if matches!(
+        beijing.weekday(),
+        chrono::Weekday::Sat | chrono::Weekday::Sun
+    ) {
+        return false;
+    }
+    let hour = beijing.hour();
     PEAK_HOURS
         .iter()
         .any(|(start, end)| hour >= *start && hour < *end)
